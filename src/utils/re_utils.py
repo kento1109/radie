@@ -13,7 +13,8 @@ import torch.optim as optim
 import torch.nn as nn
 from torch.utils.data import DataLoader
 
-from radie.src.model import RcModel_Marker, RcModel_Attention
+from radie.src.models.rc_model_marker import RcModel_Marker
+from radie.src.models.rc_model_attention import RcModel_Attention
 from radie.src.utils import candidate_generation as cg
 
 logger = logging.getLogger("re")

@@ -7,11 +7,13 @@ import torch
 import numpy as np
 from seqeval.metrics.sequence_labeling import get_entities
 
-from radie.src.model import BiLSTM_CRF
+from radie.src.models.bilstm_crf import BiLSTM_CRF
+
 
 class Mention(BaseModel):
     name: str
     entity: str
+
 
 class Tagger(object):
     def __init__(self, path):

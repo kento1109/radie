@@ -81,9 +81,9 @@ def remove_char(x):
     x = re.sub('Imp[.):].*', '', x)
     return x.strip()
 
-def insert_sep(x):
+def insert_sep(x, sep_token):
     # 文の境界を明示
-    marker = '[SEP]'
+    marker = sep_token
     x = re.sub(r'\r\n\r\n', '\r\n', x)
     x = re.sub(r'。\)', '。', x)
     x = re.sub(r'。\r\n', '。', x)

@@ -1,17 +1,22 @@
+import os
 import re
 from typing import List, Union, Tuple
 from itertools import chain, groupby
 
 from pydantic import BaseModel
+from logzero import logger
 import MeCab
+import torch
 
-from radie.src.normalizer import ChangeNormalizer
+# from radie.src.normalizer import ChangeNormalizer
 from radie.src.utils.ner_utils import Tagger
-from radie.src.utils.re_utils import Rex
+# from radie.src.utils.re_utils import Rex
 from radie.src.utils.sc_utils import SC
+from radie.src.utils.spc_utils import SentencePairClassification
 from radie.src.utils import candidate_generation
 from radie.src.utils.candidate_generation import Entity
 from radie.src.utils import preprocessing
+from radie.src.utils import types
 
 SENT_HEAD_MAP = {'head': 0, 'not_head': 1}
 
@@ -65,63 +70,36 @@ class Structured_Report(BaseModel):
                 structured_data.chunking()
 
 
-# class OAVTripletWrapper(object):
-#     def __init__(self, ner_path, re_path):
-#         self.tagger = Tagger(ner_path)
-#         self.rex = Rex(re_path)
-#         self.cg = candidate_generation
-#         self.cg.set_marker_info()
-
-#     def get_oav_triplet(self, tokens, do_certainty_completion=False):
-#         """
-#         do_certainty_completion: certaintyが存在しない場合、暗黙的肯定を補完するか
-#         """
-#         labels = self.tagger.predict(tokens)
-#         entities = self.cg.get_entities(labels)
-#         obj_entities = list(
-#             filter(lambda entity: entity[0] in self.cg.OBJ_NAMES, entities))
-#         relatin_statements = self.cg.create_relation_statements(tokens, labels)
-#         oav_list = []
-#         if relatin_statements:
-#             # get relation scores
-#             relation_scores = self.rex.predict(relatin_statements)
-#             for statement, score in zip(relatin_statements, relation_scores):
-#                 oav_list.append(
-#                     OAVTripletModel(obj_tokens=statement.obj.tokens,
-#                                     attr_tokens=statement.attr.tokens,
-#                                     value_entity=statement.attr.name,
-#                                     relation_score=score))
-#             if do_certainty_completion:
-#                 oav_list += certainty_completion(tokens, obj_entities)
-#         else:
-#             if do_certainty_completion:
-#                 if obj_entities:
-#                     oav_list += certainty_completion(tokens, obj_entities)
-#         return oav_list
-
-
-class Structured_Reporting(object):
+class Extractor(object):
     def __init__(self,
                  ner_path,
+                 spc_path=None,
                  re_path=None,
-                 sc_path=None,
                  change_norm_path=None,
                  do_preprocessing=True,
                  do_split_sentence=True,
                  do_tokenize=True,
                  return_as_oav_format=False,
                  do_normalize=False,
-                 do_certainty_completion=False):
+                 do_certainty_completion=False,
+                 do_insert_sep=False,
+                 sep_token='。'):
+
+        self.device = torch.device(
+            "cuda:0" if torch.cuda.is_available() else "cpu")
 
         self.tagger = Tagger(ner_path)
+        logger.info(f"tagger loaded ...")
         if re_path is not None:
             self.rex = Rex(re_path)
+            logger.info(f"rex model loaded ...")
         else:
             self.rex = None
-        if sc_path is not None:
-            self.sc = SC(sc_path)
+        if spc_path is not None:
+            self.spc = SentencePairClassification(self.device, spc_path)
+            logger.info(f"spc model loaded ...")
         else:
-            self.sc = None
+            self.spc = None
         if change_norm_path is not None:
             self.change_norm = ChangeNormalizer(change_norm_path)
         self.cg = candidate_generation
@@ -133,11 +111,14 @@ class Structured_Reporting(object):
         self.do_normalize = do_normalize
         self.do_certainty_completion = do_certainty_completion
         if self.do_tokenize:
-            self.mc = MeCab.Tagger("-Owakati -d /home/sugimoto/mecab_dic/seed_20200304")
+            self.mc = MeCab.Tagger(
+                "-Owakati -d /home/sugimoto/mecab_dic/seed_20200304")
+        self.do_insert_sep = do_insert_sep
+        self.sep_token = sep_token
 
     def _split_sent(self, report: str) -> List[str]:
         sent_list = []
-        for sent in re.split('\[SEP\]', report):
+        for sent in re.split(self.sep_token, report):
             if sent:
                 sent_list.append(sent)
         return sent_list
@@ -149,7 +130,7 @@ class Structured_Reporting(object):
         report = preprocessing.remove_char(report)
         report = preprocessing.mask_date(report)
         report = preprocessing.replace_space(report)
-        report = preprocessing.insert_sep(report)
+        report = preprocessing.insert_sep(report, self.sep_token)
         report = preprocessing.han_to_zen(report)
         return report
 
@@ -157,7 +138,7 @@ class Structured_Reporting(object):
         group_list = list()
         idx = -1
         for head in heads_list:
-            if head == SENT_HEAD_MAP['head']:
+            if head == 'not_related':
                 idx += 1
                 group_list.append(idx)
             else:
@@ -225,7 +206,7 @@ class Structured_Reporting(object):
         relatin_statements = self.cg.create_relation_statements(tokens, labels)
         change_statements = self.cg.create_entity_statements(
             tokens, labels,
-            [self.cg.CHANGE_NAME]) if self.do_normalize else None
+            [self.cg.CHANGE_NAME]) if self.do_normalize else list()
         norm_map_list = list()
         for change_statement in change_statements:
             _norm_map = NormMap(start_idx=change_statement.obj.start_idx,
@@ -277,42 +258,52 @@ class Structured_Reporting(object):
                         tokens, obj_entities, findings_seq)
         return structured_data_list
 
-    def ner(self, report: str) -> Tuple[List[List[str]], List[List[str]]]:
+
+    def ner(self, report: str) -> List[types.Tagger]:
         if self.do_preprocessing:
             report = self._preprocessing(report)
         if self.do_split_sentence:
             sent_list = self._split_sent(report)
         else:
             sent_list = [report]
-        tokens_list, labels_list, heads_list = list(), list(), list()
+        tokens_list, labels_list, spc_list = list(), list(), list(['not_related'])
+        outputs = list()
         for sent in sent_list:
             if self.do_tokenize:
                 tokens = self.mc.parse(sent).strip().split(' ')
             else:
                 tokens = sent
             labels = self.tagger.predict(tokens)
-            if self.sc is not None:
-                is_head = self.sc.predict(tokens)
-                heads_list.append(is_head)
+            # if self.spc_model is not None:
+            #     is_head = self.sc.predict(tokens)
+            #     heads_list.append(is_head)
             tokens_list.append(tokens)
             labels_list.append(labels)
+            outputs.append(types.Tagger(tokens=tokens, labels=labels))
         # 文を結合する
-        if self.sc is not None:
-            if tokens_list:
-                heads_list[0] = SENT_HEAD_MAP['head']  # 先頭は0（先頭ラベル）で固定する
-                self._insert_sep(heads_list, tokens_list, labels_list)
-                group_list = self._create_group_idx_list(heads_list)
+        if self.spc is not None:
+            if len(outputs) > 1:
+                spc_outputs = self.spc.sentence_pair_classification(outputs)
+                spc_list.extend(spc_outputs)
+                if self.do_insert_sep:
+                    self._insert_sep(spc_list, tokens_list, labels_list)
+                group_list = self._create_group_idx_list(spc_list)
                 tokens_list, labels_list = self._group_sentence(
                     tokens_list, group_list, labels_list)
-        return tokens_list, labels_list
+                outputs = list()
+                for tokens, labels in zip(tokens_list, labels_list):
+                    outputs.append(types.Tagger(tokens=tokens, labels=labels))
+        return outputs
 
-    def _insert_sep(self, heads_list: List[int], tokens_list: List[List[str]],
+    def _insert_sep(self, heads_list: List[str], tokens_list: List[List[str]],
                     labels_list: List[List[str]]) -> None:
-        """ 文中の区切りに[SEP]を追加する """
+        """ 文中の区切りにsep_tokenを追加する """
         for i, head in enumerate(heads_list):
-            if head == SENT_HEAD_MAP['not_head']:
-                tokens_list[i].insert(0, 'SEP')  # 文間にSEP記述子を追加
-                labels_list[i].insert(0, 'O')  # SEPにはOラベルを付与する
+            # if head == 'related':
+            #     tokens_list[i].insert(0, self.sep_token)  # 文間にSEP記述子を追加
+            #     labels_list[i].insert(0, 'O')  # SEPにはOラベルを付与する
+            tokens_list[i].append(self.sep_token)
+            labels_list[i].append('O')
 
     def structuring(
             self, report: str) -> Union[List[OAModel], List[OAVTripletModel]]:
@@ -322,25 +313,30 @@ class Structured_Reporting(object):
             sent_list = self._split_sent(report)
         else:
             sent_list = [report]
-        tokens_list, labels_list, heads_list = list(), list(), list()
+        tokens_list, labels_list, spc_list = list(), list(), list(['not_related'])
+        outputs = list()
         for sent in sent_list:
             if self.do_tokenize:
                 tokens = self.mc.parse(sent).strip().split(' ')
             else:
                 tokens = sent
             labels = self.tagger.predict(tokens)
-            if self.sc is not None:
-                is_head = self.sc.predict(tokens)
-                heads_list.append(is_head)
+            # if self.sc is not None:
+            #     is_head = self.sc.predict(tokens)
+            #     heads_list.append(is_head)
             tokens_list.append(tokens)
             labels_list.append(labels)
+            outputs.append(types.Tagger(tokens=tokens, labels=labels))
         # 文を結合する
-        if self.sc is not None:
-            heads_list[0] = SENT_HEAD_MAP['head']  # 先頭は0（先頭ラベル）で固定する
-            self._insert_sep(heads_list, tokens_list, labels_list)
-            group_list = self._create_group_idx_list(heads_list)
-            tokens_list, labels_list = self._group_sentence(
-                tokens_list, group_list, labels_list)
+        if self.spc is not None:
+            if len(outputs) > 1:
+                spc_outputs = self.spc.sentence_pair_classification(outputs)
+                spc_list.extend(spc_outputs)
+                if self.do_insert_sep:
+                    self._insert_sep(spc_list, tokens_list, labels_list)
+                group_list = self._create_group_idx_list(spc_list)
+                tokens_list, labels_list = self._group_sentence(
+                    tokens_list, group_list, labels_list)
         structured_data_list = list()
         for i, (tokens, labels) in enumerate(zip(tokens_list, labels_list)):
             _structured_data_list = self._create_structured_data(

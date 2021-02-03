@@ -5,7 +5,7 @@ import logging
 import torch
 import torch.nn.functional as F
 
-from radie.src.model import CNN
+from radie.src.models.cnn import CNN
 
 logger = logging.getLogger("sc")
 
