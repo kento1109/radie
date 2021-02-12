@@ -50,6 +50,7 @@ def to_tensor(_batch: List):
     for f in features:
         batch[f] = torch.tensor([example[f] for example in _batch],
                                 dtype=torch.long)
+        # batch[f] = torch.tensor([example[f] for example in _batch])
     return batch
 
 

@@ -20,7 +20,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
     """BERT model for classification.
     This module is customized BertForSequenceClassification
     """
-    def __init__(self, config, loss_fct, output_type='[CLS]'):
+    def __init__(self, config, loss_fct=None, output_type='[CLS]'):
         # n_entity_markers : the number of span embedded.
         # e.g. 4 entity markers are embedded in relation extraction task
         super(BertForSequenceClassification, self).__init__(config)
@@ -31,6 +31,8 @@ class BertForSequenceClassification(BertPreTrainedModel):
             'entity') else None
         self.dropout = torch.nn.Dropout(config.hidden_dropout_prob)
         self.classifier = torch.nn.Linear(config.hidden_size, self.num_labels)
+        # self.last_weight = torch.nn.Linear(config.hidden_size, 1, bias=False)
+        # self.last_bias = nn.Parameter(torch.zeros(config.num_labels).float())
         self.loss_fct = loss_fct
 
     def forward(self,
@@ -87,6 +89,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
 
         pooled_output = self.dropout(pooled_output)
         logits = self.classifier(pooled_output)
+        # logits = self.last_weight(pooled_output) + self.last_bias
 
         loss = None
         if labels is not None:

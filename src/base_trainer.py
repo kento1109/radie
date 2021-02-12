@@ -2,11 +2,13 @@ import os
 import csv
 from typing import Dict, List
 
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, mean_absolute_error
 from logzero import logger
 import torch
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau, LambdaLR
 from transformers import AdamW
+from torch.optim import SGD
 from torch.utils.data import DataLoader
 
 from radie.src.utils.trainer_utils import to_tensor, to_device
@@ -80,6 +82,10 @@ class BaseTrainer():
         #                                    patience=2,
         #                                    mode='min')
 
+        # for param in self.model.bert.parameters():
+        #     param.requires_grad = False
+        # self.model.classifier.requires_grad = True
+
         self.lr_scheduler = get_linear_schedule_with_warmup(
             self.optimizer, num_training_steps=num_training_steps)
 
@@ -141,6 +147,7 @@ class BaseTrainer():
 
         inputs_list = list()
         preds_list = list()
+        probs_list = list()
 
         with torch.no_grad():
             for batch in pred_loader:
@@ -150,9 +157,11 @@ class BaseTrainer():
                 inputs_list.extend(inputs['input_ids'].tolist())
 
                 outputs = self.model(**inputs)
+                outputs_probs = F.softmax(outputs.logits, dim=1)
 
-                _, preds = torch.max(outputs.logits, 1)
+                probs, preds = torch.max(outputs_probs, 1)
 
+                probs_list.extend(probs.tolist())
                 preds_list.extend(preds.tolist())
 
         f = open(os.path.join(logs_dir, 'predictions.csv'), 'w')
@@ -160,7 +169,7 @@ class BaseTrainer():
         for i in range(len(inputs_list)):
             input_tokens = self.tokenizer.decode(inputs_list[i],
                                                  skip_special_tokens=True)
-            writer.writerow([input_tokens, preds_list[i]])
+            writer.writerow([input_tokens, preds_list[i], probs_list[i]])
         f.close()
 
     def evaluate(self,
@@ -193,6 +202,10 @@ class BaseTrainer():
         logger.info(
             f'\n{classification_report(trues_list, preds_list, digits=4)}')
 
+        logger.info(
+            f'mean absolute error : {mean_absolute_error(trues_list, preds_list):4f}'
+        )
+
         if do_error_analysis:
             f = open(os.path.join(logs_dir, 'error_analysis.csv'), 'w')
             writer = csv.writer(f, lineterminator='\n', delimiter='\t')
@@ -205,4 +218,10 @@ class BaseTrainer():
             logger.info(f'output error analysis result')
             logger.info(os.path.join(logs_dir, 'error_analysis.csv'))
 
-        return classification_report(trues_list, preds_list, output_dict=True)
+        metrics = classification_report(trues_list,
+                                        preds_list,
+                                        output_dict=True)
+
+        metrics['mae'] = mean_absolute_error(trues_list, preds_list)
+
+        return metrics

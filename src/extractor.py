@@ -3,10 +3,11 @@ import re
 from typing import List, Union, Tuple
 from itertools import chain, groupby
 
-from pydantic import BaseModel
-from logzero import logger
 import MeCab
 import torch
+from pydantic import BaseModel
+from logzero import logger
+from omegaconf import OmegaConf
 
 # from radie.src.normalizer import ChangeNormalizer
 from radie.src.utils.ner_utils import Tagger
@@ -72,10 +73,6 @@ class Structured_Report(BaseModel):
 
 class Extractor(object):
     def __init__(self,
-                 ner_path,
-                 spc_path=None,
-                 re_path=None,
-                 change_norm_path=None,
                  do_preprocessing=True,
                  do_split_sentence=True,
                  do_tokenize=True,
@@ -85,23 +82,25 @@ class Extractor(object):
                  do_insert_sep=False,
                  sep_token='。'):
 
+        # load config
+        radie_dir = os.path.dirname(__file__)
+        self.config = OmegaConf.load(os.path.join(radie_dir, 'config.yaml'))
+
         self.device = torch.device(
             "cuda:0" if torch.cuda.is_available() else "cpu")
 
-        self.tagger = Tagger(ner_path)
+        self.tagger = Tagger(self.config.path.model_ner)
         logger.info(f"tagger loaded ...")
-        if re_path is not None:
-            self.rex = Rex(re_path)
-            logger.info(f"rex model loaded ...")
-        else:
-            self.rex = None
-        if spc_path is not None:
-            self.spc = SentencePairClassification(self.device, spc_path)
-            logger.info(f"spc model loaded ...")
-        else:
-            self.spc = None
-        if change_norm_path is not None:
-            self.change_norm = ChangeNormalizer(change_norm_path)
+        
+        # self.rec = Tagger(self.config.path.model_rec)
+        # logger.info(f"rec model loaded ...")
+
+        # self.change_normalizer = ChangeNormalizer(self.config.path.model_change_normalizer)
+        # logger.info(f"change normalizer model loaded ...")
+
+        # self.model_certainty_classifier = model_certainty_classifier(self.path.model_certainty_classifier)
+        # logger.info(f"certainty classifier model loaded ...")
+
         self.cg = candidate_generation
         self.cg.set_marker_info()
         self.do_preprocessing = do_preprocessing
@@ -112,7 +111,7 @@ class Extractor(object):
         self.do_certainty_completion = do_certainty_completion
         if self.do_tokenize:
             self.mc = MeCab.Tagger(
-                "-Owakati -d /home/sugimoto/mecab_dic/seed_20200304")
+                f"-Owakati -d {self.config.path.mecab_dict}")
         self.do_insert_sep = do_insert_sep
         self.sep_token = sep_token
 
