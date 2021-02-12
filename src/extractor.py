@@ -12,8 +12,9 @@ from omegaconf import OmegaConf
 # from radie.src.normalizer import ChangeNormalizer
 from radie.src.utils.ner_utils import Tagger
 # from radie.src.utils.re_utils import Rex
-from radie.src.utils.sc_utils import SC
-from radie.src.utils.spc_utils import SentencePairClassification
+# from radie.src.utils.sc_utils import SC
+# from radie.src.utils.spc_utils import SentencePairClassification
+from radie.src.utils.ced_utils import CertaintyClassifier
 from radie.src.utils import candidate_generation
 from radie.src.utils.candidate_generation import Entity
 from radie.src.utils import preprocessing
@@ -91,15 +92,16 @@ class Extractor(object):
 
         self.tagger = Tagger(self.config.path.model_ner)
         logger.info(f"tagger loaded ...")
-        
+
         # self.rec = Tagger(self.config.path.model_rec)
         # logger.info(f"rec model loaded ...")
 
         # self.change_normalizer = ChangeNormalizer(self.config.path.model_change_normalizer)
         # logger.info(f"change normalizer model loaded ...")
 
-        # self.model_certainty_classifier = model_certainty_classifier(self.path.model_certainty_classifier)
-        # logger.info(f"certainty classifier model loaded ...")
+        self.cc = CertaintyClassifier(
+            self.config.path.model_certainty_classifier)
+        logger.info(f"certainty classifier model loaded ...")
 
         self.cg = candidate_generation
         self.cg.set_marker_info()
@@ -114,6 +116,21 @@ class Extractor(object):
                 f"-Owakati -d {self.config.path.mecab_dict}")
         self.do_insert_sep = do_insert_sep
         self.sep_token = sep_token
+
+    def __call__(self, report: str) -> List[types.Concept]:
+        tagger_result = self.ner(report)
+        object_statements = self.cg.create_entity_statements(tagger_result)
+        certainty_scales = [
+            self.cc.predict(statement.tokens)
+            for statement in object_statements
+        ]
+        return [
+            types.Concept(clinical_concept="".join(
+                object_statement.obj.tokens),
+                          certainty_scale=certainty_scale)
+            for object_statement, certainty_scale in zip(
+                object_statements, certainty_scales)
+        ]
 
     def _split_sent(self, report: str) -> List[str]:
         sent_list = []
@@ -257,7 +274,6 @@ class Extractor(object):
                         tokens, obj_entities, findings_seq)
         return structured_data_list
 
-
     def ner(self, report: str) -> List[types.Tagger]:
         if self.do_preprocessing:
             report = self._preprocessing(report)
@@ -265,34 +281,16 @@ class Extractor(object):
             sent_list = self._split_sent(report)
         else:
             sent_list = [report]
-        tokens_list, labels_list, spc_list = list(), list(), list(['not_related'])
-        outputs = list()
+        tokens_list, labels_list = list(), list()
         for sent in sent_list:
             if self.do_tokenize:
                 tokens = self.mc.parse(sent).strip().split(' ')
             else:
                 tokens = sent
             labels = self.tagger.predict(tokens)
-            # if self.spc_model is not None:
-            #     is_head = self.sc.predict(tokens)
-            #     heads_list.append(is_head)
-            tokens_list.append(tokens)
-            labels_list.append(labels)
-            outputs.append(types.Tagger(tokens=tokens, labels=labels))
-        # 文を結合する
-        if self.spc is not None:
-            if len(outputs) > 1:
-                spc_outputs = self.spc.sentence_pair_classification(outputs)
-                spc_list.extend(spc_outputs)
-                if self.do_insert_sep:
-                    self._insert_sep(spc_list, tokens_list, labels_list)
-                group_list = self._create_group_idx_list(spc_list)
-                tokens_list, labels_list = self._group_sentence(
-                    tokens_list, group_list, labels_list)
-                outputs = list()
-                for tokens, labels in zip(tokens_list, labels_list):
-                    outputs.append(types.Tagger(tokens=tokens, labels=labels))
-        return outputs
+            tokens_list.extend(tokens)
+            labels_list.extend(labels)
+        return types.Tagger(tokens=tokens_list, labels=labels_list)
 
     def _insert_sep(self, heads_list: List[str], tokens_list: List[List[str]],
                     labels_list: List[List[str]]) -> None:
@@ -312,7 +310,8 @@ class Extractor(object):
             sent_list = self._split_sent(report)
         else:
             sent_list = [report]
-        tokens_list, labels_list, spc_list = list(), list(), list(['not_related'])
+        tokens_list, labels_list, spc_list = list(), list(), list(
+            ['not_related'])
         outputs = list()
         for sent in sent_list:
             if self.do_tokenize:

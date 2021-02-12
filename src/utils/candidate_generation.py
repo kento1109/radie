@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from itertools import product
 from seqeval.metrics.sequence_labeling import get_entities
 
+from radie.src.utils import types
+
 # global variables
 
 OBJ_NAMES = ['Imaging_observation', 'Clinical_finding']
@@ -166,15 +168,14 @@ def create_relation_statements(tokens: List[str],
 
 
 def create_entity_statements(
-        tokens: List[str],
-        labels: List[str],
+        tagger_result: types.Tagger,
         entity_list: List[Optional[str]] = None,
         contains_ced_tag: bool = False) -> List[Statement]:
     """
     NERの結果から、Certainty分類モデルの入力に必要なインスタンスを作成する
     """
     statements = list()
-    entities = get_entities(labels)
+    entities = get_entities(tagger_result.labels)
     if entity_list is None:
         entity_list = OBJ_NAMES
     obj_entities = list(filter(lambda e: e[0] in entity_list, entities))
@@ -183,7 +184,7 @@ def create_entity_statements(
         ced_entities = list(
             filter(lambda e: e[0] == 'Certainty_descriptor', entities))
     for obj_e in obj_entities:
-        _tokens = copy.deepcopy(tokens)
+        _tokens = copy.deepcopy(tagger_result.tokens)
         _start_idx, _end_idx = obj_e[1], obj_e[2]
         obj_entity = Entity(name=obj_e[0],
                             tokens=_tokens[_start_idx:_end_idx + 1],

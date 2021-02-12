@@ -1,0 +1,7 @@
+path:
+  model_dir: /data/sugimoto/experiments/outputs/
+  model_ner: ${path.model_dir}31882ab7d7ab4cf98087dab639884a6c
+  # model_rec: ${path.model_dir}31882ab7d7ab4cf98087dab639884a6c
+  # model_change_normalizer: ${path.model_dir}31882ab7d7ab4cf98087dab639884a6c
+  model_certainty_classifier: ${path.model_dir}11ab1cbff6464c97bb70ef6bd971d742
+  mecab_dict: /usr/lib/mecab/seed_20200304

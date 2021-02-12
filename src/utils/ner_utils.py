@@ -24,7 +24,9 @@ class Tagger(object):
         model_config = json.load(open(os.path.join(path, 'ner.config'), 'r'))
         self.model = BiLSTM_CRF(**model_config)
         # load pre-trained parameters
-        self.model.load_state_dict(torch.load(os.path.join(path, 'ner.bin')))
+        self.model.load_state_dict(
+            torch.load(os.path.join(path, 'ner.bin'),
+                       map_location=self.device))
         self.model = self.model.to(self.device)
 
     def label_itos(self, label_indices):
