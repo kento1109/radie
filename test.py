@@ -1,4 +1,8 @@
 from logzero import logger
+<<<<<<< HEAD
+=======
+from sklearn.metrics import classification_report
+>>>>>>> 45462776677b989047ce27b0aeb685e930dc9e2d
 
 from radie.src.extractor import Extractor
 

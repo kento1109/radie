@@ -4,7 +4,6 @@ import json
 from typing import List, Optional, Tuple, Union
 
 from collections import defaultdict
-from pydantic import BaseModel, Field
 from itertools import product
 from seqeval.metrics.sequence_labeling import get_entities
 
@@ -13,45 +12,19 @@ from radie.src.utils import types
 # global variables
 
 OBJ_NAMES = ['Imaging_observation', 'Clinical_finding']
+# ATTR_NAMES = [
+#     'Anatomical_entity', 'Certainty_descriptor', 'Size_descriptor',
+#     'Characteristics_descriptor', 'Change_descriptor'
+# ]
 ATTR_NAMES = [
-    'Anatomical_entity', 'Certainty_descriptor', 'Size_descriptor',
-    'Characteristics_descriptor', 'Change_descriptor'
+    'Anatomical_entity', 'Size_descriptor', 'Characteristics_descriptor',
+    'Change_descriptor'
 ]
 CHANGE_NAME = 'Change_descriptor'
 
 RTYPES = ['obj-attr', 'obj-obj']
 
 ENTITY_MARKERS_INFO = dict()
-
-
-class Norm(BaseModel):
-    """controlled vocabllary class"""
-    # uid: str
-    name: str
-
-
-class Entity(BaseModel):
-    name: str = Field(name="entity label name such as Imaging_observation")
-    tokens: List[str] = Field(name="mention strings")
-    start_idx: int = Field(name="start index of tokens",
-                           description="used for specifying entity")
-    norms: List[Norm] = None
-    
-
-    def chunking(self):
-        self.tokens = ''.join(self.tokens)
-
-
-class Statement(BaseModel):
-    """分類モデルの入力に必要な情報を保持する"""
-    tokens: List[str]
-    obj: Entity
-
-
-class RelationStatement(Statement):
-    """関係抽出モデルの入力に必要な情報を保持する"""
-    attr: Entity
-    entity_masks: List[int]
 
 
 def _build_entity_tokens(entity):
@@ -100,24 +73,24 @@ def _insert_entity_tokens(tokens, pair):
         entity_offset += 2
 
 
-def _set_mask_value(token, entity_markers):
-    if token in entity_markers['args1']:
-        return 1
-    elif token in entity_markers['args2']:
-        return 2
-    else:
-        return 0
+# def _set_mask_value(token, entity_markers):
+#     if token in entity_markers['args1']:
+#         return 1
+#     elif token in entity_markers['args2']:
+#         return 2
+#     else:
+#         return 0
+
+# def _create_mask(tokens, entity_markers):
+#     masks = list(
+#         map(lambda token: _set_mask_value(token, entity_markers), tokens))
+#     assert (len(list(filter(lambda m: m == 1, masks))) == 2)
+#     assert (len(list(filter(lambda m: m == 2, masks))) == 2)
+#     return masks
 
 
-def _create_mask(tokens, entity_markers):
-    masks = list(
-        map(lambda token: _set_mask_value(token, entity_markers), tokens))
-    assert (len(list(filter(lambda m: m == 1, masks))) == 2)
-    assert (len(list(filter(lambda m: m == 2, masks))) == 2)
-    return masks
-
-
-def _get_target_entity(pair, relation_type, tokens) -> Tuple[Entity, Entity]:
+def _get_target_entity(pair, relation_type,
+                       tokens) -> Tuple[types.Entity, types.Entity]:
     """pairからobj/attrのentityを得る"""
     e1, e2 = pair
     if relation_type == 'obj-attr':
@@ -131,46 +104,43 @@ def _get_target_entity(pair, relation_type, tokens) -> Tuple[Entity, Entity]:
     obj_start_idx, obj_end_idx = args1_entity[1], args1_entity[2]
     obj_name, attr_name = args1_entity[0], args2_entity[0]
     obj_tokens = tokens[obj_start_idx:obj_end_idx + 1]
-    obj_entity = Entity(name=obj_name,
-                        tokens=obj_tokens,
-                        start_idx=obj_start_idx)
+    obj_entity = types.Entity(name=obj_name,
+                              tokens=obj_tokens,
+                              start_idx=obj_start_idx)
     attr_start_idx, attr_end_idx = args2_entity[1], args2_entity[2]
     attr_tokens = tokens[attr_start_idx:attr_end_idx + 1]
-    attr_entity = Entity(name=attr_name,
-                         tokens=attr_tokens,
-                         start_idx=attr_start_idx)
+    attr_entity = types.Entity(name=attr_name,
+                               tokens=attr_tokens,
+                               start_idx=attr_start_idx)
     return obj_entity, attr_entity
 
 
-def create_relation_statements(tokens: List[str],
-                               labels: List[str]) -> List[RelationStatement]:
+def create_relation_statements(
+        tagger_result: types.Tagger) -> List[types.RelationStatement]:
     """
     NERの結果から、関係抽出モデルの入力に必要なインスタンスを作成する
     """
     # label sequenceからエンティティ情報を取り出す
-    entities = get_entities(labels)
+    entities = get_entities(tagger_result.labels)
     candidate_statements = list()
     for relation_type in RTYPES:
-        pairs = _create_pairs(tokens, entities, relation_type)
-        target_entity_markers = ENTITY_MARKERS_INFO[relation_type]
+        pairs = _create_pairs(tagger_result.tokens, entities, relation_type)
         for pair in pairs:
             obj_entity, attr_entity = _get_target_entity(
-                pair, relation_type, tokens)
-            _tokens = copy.deepcopy(tokens)
+                pair, relation_type, tagger_result.tokens)
+            _tokens = copy.deepcopy(tagger_result.tokens)
             _insert_entity_tokens(_tokens, pair)
-            _masks = _create_mask(_tokens, target_entity_markers)
             candidate_statements.append(
-                RelationStatement(tokens=_tokens,
-                                  obj=obj_entity,
-                                  attr=attr_entity,
-                                  entity_masks=_masks))
+                types.RelationStatement(tokens=_tokens,
+                                        obj=obj_entity,
+                                        attr=attr_entity))
     return candidate_statements
 
 
 def create_entity_statements(
         tagger_result: types.Tagger,
         entity_list: List[Optional[str]] = None,
-        contains_ced_tag: bool = False) -> List[Statement]:
+        contains_ced_tag: bool = False) -> List[types.Statement]:
     """
     NERの結果から、Certainty分類モデルの入力に必要なインスタンスを作成する
     """
@@ -186,9 +156,9 @@ def create_entity_statements(
     for obj_e in obj_entities:
         _tokens = copy.deepcopy(tagger_result.tokens)
         _start_idx, _end_idx = obj_e[1], obj_e[2]
-        obj_entity = Entity(name=obj_e[0],
-                            tokens=_tokens[_start_idx:_end_idx + 1],
-                            start_idx=_start_idx)
+        obj_entity = types.Entity(name=obj_e[0],
+                                  tokens=_tokens[_start_idx:_end_idx + 1],
+                                  start_idx=_start_idx)
         if contains_ced_tag:
             target_entities = [obj_e] + ced_entities
         else:
@@ -201,8 +171,7 @@ def create_entity_statements(
             _tokens.insert(start_idx + entity_offset, e_start_token)
             _tokens.insert(end_idx + entity_offset + 2, e_end_token)
             entity_offset += 2
-        statements.append(
-            Statement(tokens=_tokens, obj=obj_entity))
+        statements.append(types.Statement(tokens=_tokens, obj=obj_entity))
     return statements
 
 

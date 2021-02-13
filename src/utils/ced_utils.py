@@ -40,7 +40,11 @@ class OrdinalConverter():
 
 class CertaintyClassifier(BaseClassifier):
     def __init__(self, path: str):
+<<<<<<< HEAD
         super().__init__(path, num_labels=4)
+=======
+        super().__init__(path)
+>>>>>>> 45462776677b989047ce27b0aeb685e930dc9e2d
 
         self.ordinal_converter = OrdinalConverter(
             converter_method='decomposition', num_label=5)
