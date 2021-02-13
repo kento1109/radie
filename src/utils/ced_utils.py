@@ -1,11 +1,8 @@
-import os
 from typing import List, Any, Dict, Union
 
 import numpy as np
-import torch
-from transformers import BertTokenizer, BertConfig
 
-from radie.src.models.custom_bert import BertForSequenceClassification
+from radie.src.utils.classifier_utils import BaseClassifier
 
 
 class OrdinalConverter():
@@ -41,35 +38,16 @@ class OrdinalConverter():
         return y
 
 
-class CertaintyClassifier(object):
+class CertaintyClassifier(BaseClassifier):
     def __init__(self, path: str):
-
-        # load tokenizer
-        self.tokenizer = BertTokenizer.from_pretrained(path,
-                                                       do_basic_tokenize=False)
-
-        # load model
-        self.config = BertConfig.from_json_file(
-            os.path.join(path, 'config.json'))
-        self.idx2label = self.config.id2label
-        self.config.num_labels = len(self.config.label2id)
-        # load model
-        self.model = BertForSequenceClassification.from_pretrained(
-            path, config=self.config)
+        super().__init__(path)
 
         self.ordinal_converter = OrdinalConverter(
             converter_method='decomposition', num_label=5)
 
     def predict(self, tokens: List[str]):
 
-        encoded_dict = self.tokenizer(tokens,
-                                      padding='max_length',
-                                      max_length=512,
-                                      truncation=True,
-                                      is_split_into_words=True,
-                                      return_tensors='pt')
-
-        output = self.model(**encoded_dict)
+        output = super().predict(tokens)
 
         predicted = self.ordinal_converter.decode(
             output.logits.sigmoid().to('cpu').detach().numpy()[0])

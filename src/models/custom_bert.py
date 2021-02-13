@@ -20,14 +20,16 @@ class BertForSequenceClassification(BertPreTrainedModel):
     """BERT model for classification.
     This module is customized BertForSequenceClassification
     """
-    def __init__(self, config, loss_fct=None, output_type='[CLS]'):
-        # n_entity_markers : the number of span embedded.
-        # e.g. 4 entity markers are embedded in relation extraction task
+    def __init__(self, config, loss_fct=None, output_type=None):
         super(BertForSequenceClassification, self).__init__(config)
         self.num_labels = config.num_labels
-        self.output_type = output_type
+        if output_type is None:
+            if hasattr(config, "output_type"):
+                self.output_type = config.output_type
+            else:
+                self.output_type = '[CLS]'
         self.bert = BertModel(config)
-        self.entity_pooler = EntityPooler(config) if output_type.startswith(
+        self.entity_pooler = EntityPooler(config) if self.output_type.startswith(
             'entity') else None
         self.dropout = torch.nn.Dropout(config.hidden_dropout_prob)
         self.classifier = torch.nn.Linear(config.hidden_size, self.num_labels)

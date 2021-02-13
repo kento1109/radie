@@ -11,65 +11,11 @@ from omegaconf import OmegaConf
 
 # from radie.src.normalizer import ChangeNormalizer
 from radie.src.utils.ner_utils import Tagger
-# from radie.src.utils.re_utils import Rex
-# from radie.src.utils.sc_utils import SC
-# from radie.src.utils.spc_utils import SentencePairClassification
+from radie.src.utils.rc_utils import RelationClassifier
 from radie.src.utils.ced_utils import CertaintyClassifier
 from radie.src.utils import candidate_generation
-from radie.src.utils.candidate_generation import Entity
 from radie.src.utils import preprocessing
 from radie.src.utils import types
-
-SENT_HEAD_MAP = {'head': 0, 'not_head': 1}
-
-
-class NormMap(BaseModel):
-    """store norm infomation for entity mapping"""
-    start_idx: int
-    normed: List[str]
-
-
-class OAModel(BaseModel):
-    """構造化結果をObject-Attributeの形式を保持するクラス"""
-    findings_seq: int
-    obj_entity: Entity
-    attr_entity: Entity
-    relation_score: float
-
-    def chunking(self):
-        self.obj_entity.chunking()
-        self.attr_entity.chunking()
-
-
-class OAVTripletModel(BaseModel):
-    """構造化結果をOAVTripletの形式で保持するクラス"""
-    findings_seq: int
-    obj_tokens: List[str]
-    attr_tokens: List[str]
-    value_entity: str
-    relation_score: float
-
-    def chunking(self):
-        self.obj_tokens = ''.join(self.obj_tokens)
-        self.attr_tokens = ''.join(self.attr_tokens)
-
-
-class Structured_Report(BaseModel):
-    structured_data_list: Union[List[OAModel], List[OAVTripletModel]]
-
-    def __iter__(self):
-        return iter(self.structured_data_list)
-
-    def __getitem__(self, i):
-        return self.structured_data_list[i]
-
-    def __len__(self):
-        return len(self.structured_data_list)
-
-    def chunking(self):
-        if self.structured_data_list:
-            for structured_data in self.structured_data_list:
-                structured_data.chunking()
 
 
 class Extractor(object):
@@ -93,8 +39,8 @@ class Extractor(object):
         self.tagger = Tagger(self.config.path.model_ner)
         logger.info(f"tagger loaded ...")
 
-        # self.rec = Tagger(self.config.path.model_rec)
-        # logger.info(f"rec model loaded ...")
+        self.rc = RelationClassifier(self.config.path.model_relation_classifier)
+        logger.info(f"relation classifier model loaded ...")
 
         # self.change_normalizer = ChangeNormalizer(self.config.path.model_change_normalizer)
         # logger.info(f"change normalizer model loaded ...")
@@ -179,102 +125,104 @@ class Extractor(object):
             grouped_labels_list.append(_labels_list)
         return grouped_tokens_list, grouped_labels_list
 
-    def _certainty_completion(self,
-                              tokens,
-                              obj_entities,
-                              findings_seq,
-                              score=0.5):
-        """
-        score: completion時に設定するスコア
-        """
-        _structured_list = list()
-        for obj_entity in obj_entities:
-            _start_idx, _end_idx = obj_entity[1], obj_entity[2]
-            obj_tokens = tokens[_start_idx:_end_idx + 1]
-            if self.return_as_oav_format:
-                _structured_list.append(
-                    OAVTripletModel(findings_seq=findings_seq,
-                                    obj_tokens=obj_tokens,
-                                    attr_tokens=['implicit_positive'],
-                                    value_entity='Certainty_descriptor',
-                                    relation_score=score))
-            else:
-                _structured_list.append(
-                    OAModel(findings_seq=findings_seq,
-                            obj_entity=Entity(name=obj_entity[0],
-                                              tokens=obj_tokens,
-                                              start_idx=_start_idx),
-                            attr_entity=Entity(name='Certainty_descriptor',
-                                               tokens=['implicit_positive'],
-                                               start_idx=-1),
-                            relation_score=score))
-        return _structured_list
+    # def _certainty_completion(self,
+    #                           tokens,
+    #                           obj_entities,
+    #                           findings_seq,
+    #                           score=0.5):
+    #     """
+    #     score: completion時に設定するスコア
+    #     """
+    #     _structured_list = list()
+    #     for obj_entity in obj_entities:
+    #         _start_idx, _end_idx = obj_entity[1], obj_entity[2]
+    #         obj_tokens = tokens[_start_idx:_end_idx + 1]
+    #         if self.return_as_oav_format:
+    #             _structured_list.append(
+    #                 types.OAVTripletModel(findings_seq=findings_seq,
+    #                                 obj_tokens=obj_tokens,
+    #                                 attr_tokens=['implicit_positive'],
+    #                                 value_entity='Certainty_descriptor',
+    #                                 relation_score=score))
+    #         else:
+    #             _structured_list.append(
+    #                 types.OAModel(findings_seq=findings_seq,
+    #                         obj_entity=types.Entity(name=obj_entity[0],
+    #                                           tokens=obj_tokens,
+    #                                           start_idx=_start_idx),
+    #                         attr_entity==types.Entity(name='Certainty_descriptor',
+    #                                            tokens=['implicit_positive'],
+    #                                            start_idx=-1),
+    #                         relation_score=score))
+    #     return _structured_list
 
-    def _create_structured_data(self, tokens, labels, findings_seq):
+    def _create_structured_data(self, tagger_result: types.Tagger, findings_seq: int):
         """
         NERの結果からobject-attributeのペアを作成し、構造化形式で返す
         return_as_oav_format: 構造化形式の形式（OAVTripletのフォーマットで返すか）
         do_certainty_completion: certaintyが存在しない場合、暗黙的肯定を補完するか
         """
-        entities = self.cg.get_entities(labels)
+        entities = self.cg.get_entities(tagger_result.labels)
         obj_entities = list(
             filter(lambda entity: entity[0] in self.cg.OBJ_NAMES, entities))
-        relatin_statements = self.cg.create_relation_statements(tokens, labels)
-        change_statements = self.cg.create_entity_statements(
-            tokens, labels,
-            [self.cg.CHANGE_NAME]) if self.do_normalize else list()
-        norm_map_list = list()
-        for change_statement in change_statements:
-            _norm_map = NormMap(start_idx=change_statement.obj.start_idx,
-                                normed=self.change_norm.normalize(
-                                    change_statement.tokens))
-            norm_map_list.append(_norm_map)
+        relatin_statements = self.cg.create_relation_statements(tagger_result)
+        # change_statements = self.cg.create_entity_statements(
+        #     tokens, labels,
+        #     [self.cg.CHANGE_NAME]) if self.do_normalize else list()
+        # norm_map_list = list()
+        # for change_statement in change_statements:
+        #     _norm_map = types.NormMap(start_idx=change_statement.obj.start_idx,
+        #                         normed=self.change_norm.normalize(
+        #                             change_statement.tokens))
+        #     norm_map_list.append(_norm_map)
         structured_data_list = []
         if relatin_statements:
             # get relation scores
-            relation_scores = self.rex.predict(relatin_statements)
-            for _statement, score in zip(relatin_statements, relation_scores):
-                # do normalize
-                # HACK: should be modified !!
-                if self.do_normalize:
-                    # is attribute entity a change entity ?
-                    norm_map = list(
-                        filter(
-                            lambda _norm: _norm.start_idx == _statement.attr.
-                            start_idx, norm_map_list)
-                    )[0] if _statement.attr.name == self.cg.CHANGE_NAME else None
-                    if norm_map:
-                        norm_list = list()
-                        if isinstance(norm_map.normed, list):
-                            for _norm in norm_map.normed:
-                                norm_list.append(_norm)
-                            _statement.attr.norms = norm_list
-                        else:
-                            _statement.attr.norms = norm_map.normed
-                if self.return_as_oav_format:
-                    structured_data_list.append(
-                        OAVTripletModel(findings_seq=findings_seq,
-                                        obj_tokens=_statement.obj.tokens,
-                                        attr_tokens=_statement.attr.tokens,
-                                        value_entity=_statement.attr.name,
-                                        relation_score=score))
-                else:
-                    structured_data_list.append(
-                        OAModel(findings_seq=findings_seq,
-                                obj_entity=_statement.obj,
-                                attr_entity=_statement.attr,
-                                relation_score=score))
-            if self.do_certainty_completion:
-                structured_data_list += self._certainty_completion(
-                    tokens, obj_entities, findings_seq)
-        else:
-            if self.do_certainty_completion:
-                if obj_entities:
-                    structured_data_list += self._certainty_completion(
-                        tokens, obj_entities, findings_seq)
+            for relation_statement in relatin_statements:
+            # relation_scores = self.rc.predict(relatin_statements.tokens)
+                print(self.rc.predict(relation_statement.tokens))
+        #     for _statement, score in zip(relatin_statements, relation_scores):
+        #         # do normalize
+        #         # HACK: should be modified !!
+        #         if self.do_normalize:
+        #             # is attribute entity a change entity ?
+        #             norm_map = list(
+        #                 filter(
+        #                     lambda _norm: _norm.start_idx == _statement.attr.
+        #                     start_idx, norm_map_list)
+        #             )[0] if _statement.attr.name == self.cg.CHANGE_NAME else None
+        #             if norm_map:
+        #                 norm_list = list()
+        #                 if isinstance(norm_map.normed, list):
+        #                     for _norm in norm_map.normed:
+        #                         norm_list.append(_norm)
+        #                     _statement.attr.norms = norm_list
+        #                 else:
+        #                     _statement.attr.norms = norm_map.normed
+        #         if self.return_as_oav_format:
+        #             structured_data_list.append(
+        #                 types.OAVTripletModel(findings_seq=findings_seq,
+        #                                 obj_tokens=_statement.obj.tokens,
+        #                                 attr_tokens=_statement.attr.tokens,
+        #                                 value_entity=_statement.attr.name,
+        #                                 relation_score=score))
+        #         else:
+        #             structured_data_list.append(
+        #                 types.OAModel(findings_seq=findings_seq,
+        #                         obj_entity=_statement.obj,
+        #                         attr_entity=_statement.attr,
+        #                         relation_score=score))
+        #     if self.do_certainty_completion:
+        #         structured_data_list += self._certainty_completion(
+        #             tokens, obj_entities, findings_seq)
+        # else:
+        #     if self.do_certainty_completion:
+        #         if obj_entities:
+        #             structured_data_list += self._certainty_completion(
+        #                 tokens, obj_entities, findings_seq)
         return structured_data_list
 
-    def ner(self, report: str) -> List[types.Tagger]:
+    def ner(self, report: str) -> types.Tagger:
         if self.do_preprocessing:
             report = self._preprocessing(report)
         if self.do_split_sentence:
@@ -303,7 +251,7 @@ class Extractor(object):
             labels_list[i].append('O')
 
     def structuring(
-            self, report: str) -> Union[List[OAModel], List[OAVTripletModel]]:
+            self, report: str) -> Union[List[types.OAModel], List[types.OAVTripletModel]]:
         if self.do_preprocessing:
             report = self._preprocessing(report)
         if self.do_split_sentence:
@@ -340,4 +288,4 @@ class Extractor(object):
             _structured_data_list = self._create_structured_data(
                 tokens, labels, i)
             structured_data_list.extend(_structured_data_list)
-        return Structured_Report(structured_data_list=structured_data_list)
+        return types.Structured_Report(structured_data_list=structured_data_list)
