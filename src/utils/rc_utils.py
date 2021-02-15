@@ -44,7 +44,7 @@ class RelationClassifier(BaseClassifier):
     def __init__(self, path: str):
         super().__init__(path)
 
-    def predict(self, tokens: List[str]):
+    def predict(self, tokens: List[str]) -> str:
 
         output = super().predict(tokens)
 

@@ -1,8 +1,5 @@
+from itertools import groupby
 from logzero import logger
-<<<<<<< HEAD
-=======
-from sklearn.metrics import classification_report
->>>>>>> 45462776677b989047ce27b0aeb685e930dc9e2d
 
 from radie.src.extractor import Extractor
 
@@ -12,19 +9,18 @@ def main():
                           do_split_sentence=True,
                           do_tokenize=True)
 
-    text = '肺癌術後。肺野に結節影を認める。炎症後変化を疑う。肺癌の可能性は低いと思われる。リンパ節腫大は認めない。'
+    text = '肺野に１５mm大の結節影を認める。炎症後変化を疑う。肺癌の可能性は低いと思われる。リンパ節腫大は認めない。'
 
     tagger_result = extractor.ner(text)
 
     logger.info(f'tagger result : {tagger_result}')
 
-    relatin_statements = extractor.cg.create_relation_statements(tagger_result)
+    outputs = extractor(text)
+    # outputs = list(map(lambda output: output.chunking(), outputs))
+    for output in outputs:
+        output.chunking()
+    logger.info(f'structured model : {outputs}')
 
-    logger.info(f'relatin statements : {relatin_statements}')
-
-    # output = extractor(text)
-
-    # logger.info(f'object with certainty scale : {output}')
 
 if __name__ == "__main__":
     main()

@@ -60,18 +60,20 @@ def _create_pairs(tokens, entities, relation_type):
     return [sorted(pair, key=lambda x: x[1]) for pair in pairs]
 
 
-def _insert_entity_tokens(tokens, pair):
+def _insert_entity_tokens(tokens: List[str], pair: Tuple) -> List[str]:
     """
-    token配列の所定の位置にmarkerを挿入する（in-place）
+    token配列の所定の位置にmarkerを挿入する
     """
+    _tokens = copy.deepcopy(tokens)
     entity_offset = 0
+    pair = sorted(pair, key=lambda p: p[1])
     for _entity_info in pair:
         entity_name, start_idx, end_idx = _entity_info
         e_start_token, e_end_token = _build_entity_tokens(entity_name)
-        tokens.insert(start_idx + entity_offset, e_start_token)
-        tokens.insert(end_idx + entity_offset + 2, e_end_token)
+        _tokens.insert(start_idx + entity_offset, e_start_token)
+        _tokens.insert(end_idx + entity_offset + 2, e_end_token)
         entity_offset += 2
-
+    return _tokens
 
 # def _set_mask_value(token, entity_markers):
 #     if token in entity_markers['args1']:
@@ -87,6 +89,13 @@ def _insert_entity_tokens(tokens, pair):
 #     assert (len(list(filter(lambda m: m == 1, masks))) == 2)
 #     assert (len(list(filter(lambda m: m == 2, masks))) == 2)
 #     return masks
+
+def _get_entity(tokens: List[str], entity_info: Tuple) -> types.Entity:
+    entity_name, start_idx, end_idx = entity_info
+    target_tokens = tokens[start_idx: end_idx + 1]
+    return types.Entity(name=entity_name,
+                        tokens=target_tokens,
+                        start_idx=start_idx)
 
 
 def _get_target_entity(pair, relation_type,
@@ -122,6 +131,7 @@ def create_relation_statements(
     """
     # label sequenceからエンティティ情報を取り出す
     entities = get_entities(tagger_result.labels)
+    obj_entities = list(filter(lambda e: e[0] in OBJ_NAMES, entities))
     candidate_statements = list()
     for relation_type in RTYPES:
         pairs = _create_pairs(tagger_result.tokens, entities, relation_type)
@@ -137,10 +147,21 @@ def create_relation_statements(
     return candidate_statements
 
 
+def create_object_statement(tokens: List[str], obj_entity: Tuple) -> types.Statement:
+    _tokens = copy.deepcopy(tokens)
+    start_idx, end_idx = obj_entity[1], obj_entity[2]
+    obj_entity = types.Entity(name=obj_entity[0],
+                              tokens=_tokens[start_idx:end_idx + 1],
+                              start_idx=start_idx)
+    e_start_token, e_end_token = _build_entity_tokens(obj_entity.name)
+    _tokens.insert(start_idx, e_start_token)
+    _tokens.insert(end_idx + 2, e_end_token)
+    return _tokens
+
+
 def create_entity_statements(
         tagger_result: types.Tagger,
-        entity_list: List[Optional[str]] = None,
-        contains_ced_tag: bool = False) -> List[types.Statement]:
+        entity_list: List[Optional[str]] = None) -> List[types.Statement]:
     """
     NERの結果から、Certainty分類モデルの入力に必要なインスタンスを作成する
     """
@@ -149,20 +170,13 @@ def create_entity_statements(
     if entity_list is None:
         entity_list = OBJ_NAMES
     obj_entities = list(filter(lambda e: e[0] in entity_list, entities))
-    ced_entities = None
-    if contains_ced_tag:
-        ced_entities = list(
-            filter(lambda e: e[0] == 'Certainty_descriptor', entities))
     for obj_e in obj_entities:
         _tokens = copy.deepcopy(tagger_result.tokens)
         _start_idx, _end_idx = obj_e[1], obj_e[2]
         obj_entity = types.Entity(name=obj_e[0],
                                   tokens=_tokens[_start_idx:_end_idx + 1],
                                   start_idx=_start_idx)
-        if contains_ced_tag:
-            target_entities = [obj_e] + ced_entities
-        else:
-            target_entities = [obj_e]
+        target_entities = [obj_e]
         entity_offset = 0
         target_entities.sort(key=lambda x: (x[1]))  # sort by entity start idx
         for target_e in target_entities:
