@@ -8,11 +8,7 @@ from radie.src.utils.trainer_utils import to_tensor
 
 
 class BaseClassifier(object):
-<<<<<<< HEAD
     def __init__(self, path: str, num_labels=0):
-=======
-    def __init__(self, path: str):
->>>>>>> 45462776677b989047ce27b0aeb685e930dc9e2d
 
         # load tokenizer
         self.tokenizer = BertTokenizer.from_pretrained(path,
@@ -22,11 +18,7 @@ class BaseClassifier(object):
         self.config = BertConfig.from_json_file(
             os.path.join(path, 'config.json'))
         self.idx2label = self.config.id2label
-<<<<<<< HEAD
         self.config.num_labels = num_labels if num_labels else len(self.config.id2label)
-=======
-        self.config.num_labels = len(self.config.id2label)
->>>>>>> 45462776677b989047ce27b0aeb685e930dc9e2d
         # load model
         self.model = BertForSequenceClassification.from_pretrained(
             path, config=self.config)

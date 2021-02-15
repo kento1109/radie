@@ -28,11 +28,8 @@ class BertForSequenceClassification(BertPreTrainedModel):
                 self.output_type = config.output_type
             else:
                 self.output_type = '[CLS]'
-<<<<<<< HEAD
         else:
             self.output_type = output_type 
-=======
->>>>>>> 45462776677b989047ce27b0aeb685e930dc9e2d
         self.bert = BertModel(config)
         self.entity_pooler = EntityPooler(config) if self.output_type.startswith(
             'entity') else None

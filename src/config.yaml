@@ -1,11 +1,6 @@
 path:
-<<<<<<< HEAD
   model_dir: /home/sugimoto/experiments/outputs/
   model_ner: ${path.model_dir}f721a7ce7628455d8524d26b18023d27
-=======
-  model_dir: /data/sugimoto/experiments/outputs/
-  model_ner: ${path.model_dir}31882ab7d7ab4cf98087dab639884a6c
->>>>>>> 45462776677b989047ce27b0aeb685e930dc9e2d
   model_relation_classifier: ${path.model_dir}b3e8f3fb8549418f9166936e47c2ffaa
   # model_change_normalizer: ${path.model_dir}31882ab7d7ab4cf98087dab639884a6c
   model_certainty_classifier: ${path.model_dir}11ab1cbff6464c97bb70ef6bd971d742
