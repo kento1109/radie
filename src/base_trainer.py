@@ -11,7 +11,7 @@ from transformers import AdamW
 from torch.optim import SGD
 from torch.utils.data import DataLoader
 
-from radie.src.utils.trainer_utils import to_tensor, to_device
+from radie.src.lib.trainer_utils import to_tensor, to_device
 
 def get_linear_schedule_with_warmup(optimizer, num_training_steps):
 
