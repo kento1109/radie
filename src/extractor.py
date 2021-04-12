@@ -1,22 +1,21 @@
 import os
 import re
 import copy
-from typing import List, Union, Tuple
-from itertools import chain, groupby, product
+from typing import List
+from itertools import product
 
 import MeCab
 import torch
-from pydantic import BaseModel
 from logzero import logger
 from omegaconf import OmegaConf
 
 # from radie.src.normalizer import ChangeNormalizer
-from radie.src.utils.ner_utils import Tagger
-from radie.src.utils.rc_utils import RelationClassifier
-from radie.src.utils.ced_utils import CertaintyClassifier
-from radie.src.utils import candidate_generation
-from radie.src.utils import preprocessing
-from radie.src.utils import types
+from radie.src.lib.ner_utils import Tagger
+from radie.src.lib.classifier_utils import RelationClassifier
+from radie.src.lib.classifier_utils import CertaintyClassifier
+from radie.src.lib import candidate_generation
+from radie.src.lib import preprocessing
+from radie.src.lib import types
 
 
 class Extractor(object):
