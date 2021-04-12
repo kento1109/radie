@@ -1,7 +1,7 @@
 import torch.nn as nn
 
-from radie.src.torchcrf import CRF
-from radie.src.torchhelper import FloatTensor, LongTensor, zeros, Attention
+from radie.src.models.torchcrf import CRF
+from radie.src.lib.torchhelper import zeros
 
 class BiLSTM_CRF(nn.Module):
     def __init__(self, vocab_size, num_classes, embedding_dim, hidden_dim,
