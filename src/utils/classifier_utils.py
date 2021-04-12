@@ -71,7 +71,9 @@ class BaseClassifier(object):
 
         self.model.to(self.device)
 
-    def predict(self, tokens_list: List[List[str]]) -> List[str]:
+    def predict(self,
+                tokens_list: List[List[str]],
+                return_as_argmax: bool = False) -> List[str]:
 
         # restrict batch size to avoid out of memory error
         outputs = list()
@@ -96,37 +98,15 @@ class BaseClassifier(object):
                             num_entitiies=self.config.num_entitiies,
                             max_seq_length=self.config.max_position_embeddings)
                         entity_mask_list.append(entity_mask)
-                    encoded_dict['entity_mask'] = torch.tensor(entity_mask_list,
-                                                            dtype=torch.long)
+                    encoded_dict['entity_mask'] = torch.tensor(
+                        entity_mask_list, dtype=torch.long)
 
-            # encoded_dict = to_tensor(encoded_dict)
             encoded_dict = to_device(self.device, encoded_dict)
-            output = self.model(**encoded_dict)
-            outputs.extend(output.logits.argmax(dim=1).tolist())
+            output = self.model(**encoded_dict).logits
+            if return_as_argmax:
+                outputs.extend(output.argmax(dim=1).tolist())
+            else:
+                outputs.extend(output.tolist())
             torch.cuda.empty_cache()
 
         return outputs
-
-    # def predict(self, tokens: List[str]) -> str:
-
-    #     encoded_dict = self.tokenizer(
-    #         tokens,
-    #         padding='max_length',
-    #         max_length=self.config.max_position_embeddings,
-    #         truncation=True,
-    #         is_split_into_words=True)
-
-    #     if hasattr(self.config, "output_type"):
-    #         if self.config.output_type.startswith('entity'):
-    #             encoded_dict['entity_mask'] = get_entity_masks(
-    #                 encoded_dict['input_ids'],
-    #                 output_type=self.config.output_type,
-    #                 base_vocab_size=32000,
-    #                 num_entitiies=self.config.num_entitiies,
-    #                 max_seq_length=self.config.max_position_embeddings)
-
-    #     encoded_dict = to_tensor([encoded_dict])
-
-    #     output = self.model(**encoded_dict)
-
-    #     return output

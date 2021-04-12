@@ -49,8 +49,6 @@ class CertaintyClassifier(BaseClassifier):
 
         outputs = super().predict(tokens_list)
 
-        outputs = outputs.sigmoid().to('cpu').detach().numpy()
-
         outputs_label = list()
 
         for output in outputs:

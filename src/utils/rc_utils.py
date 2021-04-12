@@ -46,6 +46,6 @@ class RelationClassifier(BaseClassifier):
 
     def predict(self, tokens_list: List[List[str]]) -> List[str]:
 
-        predicted = super().predict(tokens_list)
+        predicted = super().predict(tokens_list, return_as_argmax=True)
 
         return [self.idx2label[p] for p in predicted]
