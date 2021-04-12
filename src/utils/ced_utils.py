@@ -39,17 +39,22 @@ class OrdinalConverter():
 
 
 class CertaintyClassifier(BaseClassifier):
-    def __init__(self, path: str):
-        super().__init__(path, num_labels=4)
+    def __init__(self, path: str, max_batch_size: int):
+        super().__init__(path, max_batch_size, num_labels=4)
 
         self.ordinal_converter = OrdinalConverter(
             converter_method='decomposition', num_label=5)
 
-    def predict(self, tokens: List[str]):
+    def predict(self, tokens_list: List[List[str]]) -> List[str]:
 
-        output = super().predict(tokens)
+        outputs = super().predict(tokens_list)
 
-        predicted = self.ordinal_converter.decode(
-            output.logits.sigmoid().to('cpu').detach().numpy()[0])
+        outputs = outputs.sigmoid().to('cpu').detach().numpy()
 
-        return self.idx2label[predicted]
+        outputs_label = list()
+
+        for output in outputs:
+            predicted = self.ordinal_converter.decode(output)
+            outputs_label.append(self.idx2label[predicted])
+
+        return outputs_label

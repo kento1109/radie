@@ -41,13 +41,11 @@ class InputExample:
 
 
 class RelationClassifier(BaseClassifier):
-    def __init__(self, path: str):
-        super().__init__(path)
+    def __init__(self, path: str, max_batch_size: int):
+        super().__init__(path, max_batch_size)
 
-    def predict(self, tokens: List[str]) -> str:
+    def predict(self, tokens_list: List[List[str]]) -> List[str]:
 
-        output = super().predict(tokens)
+        predicted = super().predict(tokens_list)
 
-        predicted = output.logits.argmax().item()
-
-        return self.idx2label[predicted]
+        return [self.idx2label[p] for p in predicted]

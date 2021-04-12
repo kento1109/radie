@@ -2,6 +2,7 @@ from typing import Dict, List, Union, Optional
 
 from pydantic import BaseModel, Field
 
+
 class Tagger(BaseModel):
     tokens: List[str]
     labels: List[str]
@@ -18,11 +19,13 @@ class Entity(BaseModel):
     tokens: List[str] = Field(name="mention strings")
     start_idx: int = Field(name="start index of tokens",
                            description="used for specifying entity")
+    end_idx: int = Field(name="end index of tokens",
+                         description="used for specifying entity")
     norms: List[Norm] = None
-    
 
     def chunking(self):
         self.tokens = ''.join(self.tokens)
+
 
 class Object(BaseModel):
     """

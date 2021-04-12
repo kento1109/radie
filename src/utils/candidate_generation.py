@@ -95,7 +95,8 @@ def _get_entity(tokens: List[str], entity_info: Tuple) -> types.Entity:
     target_tokens = tokens[start_idx: end_idx + 1]
     return types.Entity(name=entity_name,
                         tokens=target_tokens,
-                        start_idx=start_idx)
+                        start_idx=start_idx,
+                        end_idx=end_idx)
 
 
 def _get_target_entity(pair, relation_type,
@@ -152,7 +153,8 @@ def create_object_statement(tokens: List[str], obj_entity: Tuple) -> types.State
     start_idx, end_idx = obj_entity[1], obj_entity[2]
     obj_entity = types.Entity(name=obj_entity[0],
                               tokens=_tokens[start_idx:end_idx + 1],
-                              start_idx=start_idx)
+                              start_idx=start_idx,
+                              end_idx=end_idx)
     e_start_token, e_end_token = _build_entity_tokens(obj_entity.name)
     _tokens.insert(start_idx, e_start_token)
     _tokens.insert(end_idx + 2, e_end_token)

@@ -24,10 +24,9 @@ class Extractor(object):
                  do_preprocessing=True,
                  do_split_sentence=True,
                  do_tokenize=True,
-                 return_as_oav_format=False,
                  do_normalize=False,
-                 do_certainty_completion=False,
                  do_insert_sep=False,
+                 do_certainty_scaling=True,
                  sep_token='。'):
 
         # load config
@@ -41,14 +40,14 @@ class Extractor(object):
         logger.info(f"tagger loaded ...")
 
         self.rc = RelationClassifier(
-            self.config.path.model_relation_classifier)
+            self.config.path.model_relation_classifier, self.config.max_batch_size)
         logger.info(f"relation classifier model loaded ...")
 
         # self.change_normalizer = ChangeNormalizer(self.config.path.model_change_normalizer)
         # logger.info(f"change normalizer model loaded ...")
 
         self.cc = CertaintyClassifier(
-            self.config.path.model_certainty_classifier)
+            self.config.path.model_certainty_classifier, self.config.max_batch_size)
         logger.info(f"certainty classifier model loaded ...")
 
         self.cg = candidate_generation
@@ -56,9 +55,9 @@ class Extractor(object):
         self.do_preprocessing = do_preprocessing
         self.do_split_sentence = do_split_sentence
         self.do_tokenize = do_tokenize
-        self.return_as_oav_format = return_as_oav_format
+        self.do_certainty_scaling = do_certainty_scaling
+
         self.do_normalize = do_normalize
-        self.do_certainty_completion = do_certainty_completion
         if self.do_tokenize:
             self.mc = MeCab.Tagger(
                 f"-Owakati -d {self.config.path.mecab_dict}")
@@ -106,34 +105,63 @@ class Extractor(object):
         cf_entities = list(
             filter(lambda entity: entity[0] == 'Clinical_finding', entities))
         structured_models = list()
+
+        object_statement_list = list()
+        relation_statement_list = list()
+        obj_attr_pairs_list = list()
+
         for obj_entity in obj_entities:
             object_statement = self.cg.create_object_statement(
                 tagger_result.tokens, obj_entity)
-            # predict certainty scale
-            certainty_scale = self.cc.predict(object_statement)
-            clinical_object = types.Object(entity=self.cg._get_entity(
-                tagger_result.tokens, obj_entity),
-                                           certainty_scale=certainty_scale)
+            object_statement_list.append(object_statement)
+
             # pair between obj and attr
             obj_attr_pairs = list(product([obj_entity], attr_entities))
-            # pair between obj(observation) and attr(clinical findings)
-            if clinical_object.entity.name == 'Imaging_observation':
+            # obj_attr_pairs = []
+
+            if obj_entity[0] == 'Imaging_observation':
                 obj_attr_pairs += list(product([obj_entity], cf_entities))
-            attr_list = list()
+
+            obj_attr_pairs_list.append(obj_attr_pairs)
+
             for obj_attr_pair in obj_attr_pairs:
                 relation_statement = self.cg._insert_entity_tokens(
                     tagger_result.tokens, obj_attr_pair)
-                relation_label = self.rc.predict(relation_statement)
+                relation_statement_list.append(relation_statement)
+
+        # predict each certainty scale
+        if self.do_certainty_scaling and object_statement_list:
+            certainty_scales = self.cc.predict(object_statement_list)
+        # classify relation
+        if relation_statement_list:
+            relation_labels = self.rc.predict(relation_statement_list)
+
+        num_obj_entities = len(obj_entities)
+        relation_idx = 0
+        for i in range(num_obj_entities):
+            certainty_scale = ''
+            if self.do_certainty_scaling:
+                certainty_scale = certainty_scales[i]
+            clinical_object = types.Object(entity=self.cg._get_entity(
+                tagger_result.tokens, obj_entities[i]),
+                                           certainty_scale=certainty_scale)
+            attr_list = list()
+            obj_attr_pairs = obj_attr_pairs_list[i]
+            for obj_attr_pair in obj_attr_pairs:
+                relation_label = relation_labels[relation_idx]
                 if relation_label == 'related':
                     attr_entity = self.cg._get_entity(tagger_result.tokens,
                                                       obj_attr_pair[1])
                     attr_list.append(attr_entity)
+                relation_idx += 1
             _structured_model = types.StructuredModel(
                 clinical_object=clinical_object, attributes=attr_list)
             structured_models.append(_structured_model)
         return structured_models
 
+
     def ner(self, report: str) -> types.Tagger:
+        """ named entity recognition module """
         if self.do_preprocessing:
             report = self._preprocessing(report)
         if self.do_split_sentence:
@@ -145,11 +173,13 @@ class Extractor(object):
             if self.do_tokenize:
                 tokens = self.mc.parse(sent).strip().split(' ')
             else:
-                tokens = sent
+                tokens = sent.strip().split(' ')
             labels = self.tagger.predict(tokens)
             tokens_list.extend(tokens)
-            tokens_list.append(self.sep_token)
             labels_list.extend(labels)
-            labels_list.extend('O')
+            if self.do_preprocessing:
+                tokens_list.append(self.sep_token)
+                labels_list.extend('O')
+        torch.cuda.empty_cache()
         return types.Tagger(tokens=tokens_list, labels=labels_list)
 
