@@ -27,7 +27,7 @@ class Entity(BaseModel):
         self.tokens = ''.join(self.tokens)
 
 
-class Object(BaseModel):
+class ClinicalObject(BaseModel):
     """
     extracted observation and clinical findings,
     and whose certainty scale
@@ -48,7 +48,7 @@ class RelationStatement(Statement):
 
 
 class StructuredModel(BaseModel):
-    clinical_object: Object
+    clinical_object: ClinicalObject
     attributes: List[Optional[Entity]]
 
     def chunking(self):

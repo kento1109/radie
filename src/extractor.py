@@ -2,6 +2,7 @@ import os
 import re
 import copy
 from typing import List
+from typing import Optional
 from itertools import product
 
 import MeCab
@@ -39,14 +40,16 @@ class Extractor(object):
         logger.info(f"tagger loaded ...")
 
         self.rc = RelationClassifier(
-            self.config.path.model_relation_classifier, self.config.max_batch_size)
+            self.config.path.model_relation_classifier,
+            self.config.max_batch_size)
         logger.info(f"relation classifier model loaded ...")
 
         # self.change_normalizer = ChangeNormalizer(self.config.path.model_change_normalizer)
         # logger.info(f"change normalizer model loaded ...")
 
         self.cc = CertaintyClassifier(
-            self.config.path.model_certainty_classifier, self.config.max_batch_size)
+            self.config.path.model_certainty_classifier,
+            self.config.max_batch_size)
         logger.info(f"certainty classifier model loaded ...")
 
         self.cg = candidate_generation
@@ -141,9 +144,10 @@ class Extractor(object):
             certainty_scale = ''
             if self.do_certainty_scaling:
                 certainty_scale = certainty_scales[i]
-            clinical_object = types.Object(entity=self.cg._get_entity(
-                tagger_result.tokens, obj_entities[i]),
-                                           certainty_scale=certainty_scale)
+            clinical_object = types.ClinicalObject(
+                entity=self.cg._get_entity(tagger_result.tokens,
+                                           obj_entities[i]),
+                certainty_scale=certainty_scale)
             attr_list = list()
             obj_attr_pairs = obj_attr_pairs_list[i]
             for obj_attr_pair in obj_attr_pairs:
@@ -158,7 +162,6 @@ class Extractor(object):
             structured_models.append(_structured_model)
         return structured_models
 
-
     def ner(self, report: str) -> types.Tagger:
         """ named entity recognition module """
         if self.do_preprocessing:
@@ -168,6 +171,7 @@ class Extractor(object):
         else:
             sent_list = [report]
         tokens_list, labels_list = list(), list()
+        print(sent_list)
         for sent in sent_list:
             if self.do_tokenize:
                 tokens = self.mc.parse(sent).strip().split(' ')
@@ -182,3 +186,37 @@ class Extractor(object):
         torch.cuda.empty_cache()
         return types.Tagger(tokens=tokens_list, labels=labels_list)
 
+    def focus_clinical_object(
+            self,
+            report: str,
+            target_entity: Optional[str] = None) -> List[types.ClinicalObject]:
+
+        # ner
+        tagger_result = self.ner(report)
+
+        entities = self.cg.get_entities(tagger_result.labels)
+
+        if target_entity:
+            target_entities = list(
+                filter(lambda entity: entity[0] == target_entity, entities))
+        else:
+            target_entities = list(
+                filter(lambda entity: entity[0] in self.cg.OBJ_NAMES, entities))            
+
+        clinical_object_list = list()
+
+        if target_entities:
+
+            for entity in target_entities:
+                statement = self.cg.create_object_statement(
+                    tagger_result.tokens, entity)
+
+                certainty_scale = self.cc.predict([statement])[0]
+
+                clinical_object = types.ClinicalObject(
+                    entity=self.cg._get_entity(tagger_result.tokens, entity),
+                    certainty_scale=certainty_scale)
+
+                clinical_object_list.append(clinical_object)
+
+        return clinical_object_list
